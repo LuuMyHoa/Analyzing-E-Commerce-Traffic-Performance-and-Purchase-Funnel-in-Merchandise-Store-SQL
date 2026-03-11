@@ -9,9 +9,9 @@
 * [Recommendations](#recommendations)
 
 ## Business Objectives
-This project analyzes Google Analytics e-commerce session data to evaluate website performance and customer behavior.
+This project analyzes Google Analytics e-commerce session data to evaluate website performance and customer behavior. 
 
-The analysis aims to:
+The analysis aims to: 
 
 * Measure key e-commerce performance metrics such as visits, pageviews, transactions, and revenue.
 
@@ -24,24 +24,36 @@ The analysis aims to:
 ## Dataset
 Google BigQuery Public Dataset: ```bigquery-public-data.google_analytics_sample.ga_sessions```
 
-Some fields are nested and repeated, therefore UNNEST() is used in SQL queries to extract product-level information.
+Some fields are nested and repeated, therefore UNNEST() is used in SQL queries to extract product-level information. 
 
-The table below summarizes the key fields used in this analysis.
+The table below summarizes the key fields used in this analysis. The complete dataset schema can be found [hear](https://support.google.com/analytics/answer/3437719?hl=en).
 
-| Field | Description |
-|------|-------------|
-| fullVisitorId | Unique visitor identifier |
-| date | Session date |
-| totals.visits | Number of sessions |
-| totals.pageviews | Number of pageviews |
-| totals.transactions | Number of transactions |
+| Field | Type | Description | 
+|------|------|-------------| 
+| fullVisitorId | STRING | The unique visitor ID. | 
+| date | STRING | The date of the session in YYYYMMDD format. | 
+| totals | RECORD | This section contains aggregate values across the session. |
+| totals.bounces | INTEGER | Total bounces (for convenience). For a bounced session, the value is 1, otherwise it is null. |
+| totals.hits | INTEGER | Total number of hits within the session. | 
+| totals.pageviews | INTEGER | Total number of pageviews within the session. |
+| totals.visits | INTEGER | The number of sessions (for convenience). This value is 1 for sessions with interaction events. The value is null if there are no interaction events in the session. |
+| totals.transactions | INTEGER | Total number of ecommerce transactions within the session. | 
+| trafficSource.source | STRING | The source of the traffic source. Could be the name of the search engine, the referring hostname, or a value of the utm_source URL parameter. | 
+| hits | RECORD | This row and nested fields are populated for any and all types of hits. |
+| hits.eCommerceAction | RECORD | This section contains all of the ecommerce hits that occurred during the session. This is a repeated field and has an entry for each hit that was collected. | 
+| hits.eCommerceAction.action_type | STRING | The action type. Click through of product lists = 1, Product detail views = 2, Add product(s) to cart = 3, Remove product(s) from cart = 4, Check out = 5, Completed purchase = 6, Refund of purchase = 7, Checkout options = 8, Unknown = 0. | 
+| hits.product | RECORD | This row and nested fields will be populated for each hit that contains Enhanced Ecommerce PRODUCT data. | 
+| hits.product.productQuantity | INTEGER | The quantity of the product purchased. | 
+| hits.product.productRevenue | INTEGER | The revenue of the product, expressed as the value passed to Analytics multiplied by 10^6 (e.g., 2.40 would be given as 2400000). |
+| hits.product.productSKU | STRING | Product SKU. | 
+| hits.product.v2ProductName | STRING | Product Name. |
 
 ## SQL Analysis
-The project answers several key business questions using SQL in Google BigQuery.
+The project answers several key business questions using SQL in Google BigQuery. 
 
 **1. Calculate total visit, pageview, transaction for Jan, Feb and March 2017 (order by month).**
 
-```
+```sql
 SELECT 
   format_date('%Y%m',parse_date('%Y%m%d', date)) month
   ,count(totals.visits) visits
@@ -53,9 +65,15 @@ group by 1
 order by 1;                                     --order by month
 ```
 
+| month | visits | pageviews | transactions | 
+|------|------|------|------| 
+| 201701 | 64694 | 257708 | 713 |
+| 201702 | 62192 | 233373 | 733 | 
+| 201703 | 69931 | 259522 | 993 |
+
 **2. Bounce rate per traffic source in July 2017 (order by total_visit DESC).**
 
-```
+```sql
 SELECT 
   trafficSource.source source
   ,count(totals.visits) totals_visits
@@ -66,45 +84,65 @@ group by 1
 order by 2 DESC;                                                        --order by total_visit DESC
 ```
 
+| source | totals_visits | total_no_of_bounces | bounce_rate | 
+|------|------|------|------| 
+| google | 38400 | 19798 | 51.557 | 
+| (direct) | 19891 | 8606 | 43.266 | 
+| youtube.com | 6351 | 4238 | 66.73 |
+| analytics.google.com | 1972 | 1064 | 53.955 |
+
 **3. Revenue by traffic source by week, by month in June 2017.**
 
-```
-with revenue_week as(
-  SELECT 
-    format_date('%Y%m', parse_date('%Y%m%d', date)) month
-    ,format_date('%Y%W', parse_date('%Y%m%d', date)) week
-    ,trafficSource.source source
-    ,product.productRevenue revenue
+```sql
+with 
+month_data as(
+  SELECT
+    "Month" time_type,
+    format_date("%Y%m", parse_date("%Y%m%d", date)) time,
+    trafficSource.source source,
+    sum(p.productRevenue)/1000000 revenue
   FROM `bigquery-public-data.google_analytics_sample.ga_sessions_201706*`, -- month:06 
-  UNNEST (hits) hits,
-  UNNEST (hits.product) product
+    UNNEST (hits) hits,
+    UNNEST (hits.product) p
+  WHERE p.productRevenue is not null
+  GROUP BY 1,2,3
+  order by revenue DESC
+),
+
+week_data as(
+  SELECT
+    "Week" time_type,
+    format_date("%Y%W", parse_date("%Y%m%d", date)) time,
+    trafficSource.source source,
+    sum(p.productRevenue)/1000000 revenue
+  FROM `bigquery-public-data.google_analytics_sample.ga_sessions_201706*`, -- month:06 
+    UNNEST (hits) hits,
+    UNNEST (hits.product) p
+  WHERE p.productRevenue is not null
+  GROUP BY 1,2,3
+  order by revenue DESC
 )
 
-select 
-  'Week'time_type
-  ,week
-  ,source 
-  ,round(sum(revenue)/1000000,4) revenue
-from revenue_week
-group by 1,2,3
-having revenue is not null
-
+select * from month_data
 union all
-
-select 
-  'Month'time_type
-  ,month
-  ,source 
-  ,round(sum(revenue)/1000000,4) revenue
-from revenue_week
-group by 1,2,3
-having revenue is not null
-order by 3,1,2;
+select * from week_data
+order by time_type, time, revenue DESC;
 ```
+
+| time_type | time | source | revenue | 
+|------|------|------|------|
+| Month | 201706 | (direct) | 97333.619695 |
+| Month | 201706 | google | 18757.17992 | 
+| Month | 201706 | dfa | 8862.229996 | 
+|------|------|------|------| 
+| Week | 201722 | (direct) | 6888.899975 | 
+| Week | 201722 | google | 2119.38999 | 
+| Week | 201722 | dfa | 1670.649998 | 
+|------|------|------|------|
 
 **4. Average number of pageviews by purchaser type (purchasers vs non-purchasers) in June, July 2017.**
 
-```
+```sql
 /*
 step1: tính avg_pageviews_purchasers theo từng tháng
 step2: tính avg_pageviews_non_purchasers theo từng tháng
@@ -118,8 +156,8 @@ pageviews_purchasers as(  --tính avg_pageviews_purchasers
     ,sum(totals.pageviews) sum_pageviews_purchasers 
     ,round(sum(totals.pageviews)/count(distinct fullVisitorId),7) avg_pageviews_purchasers
   FROM `bigquery-public-data.google_analytics_sample.ga_sessions_2017*`,
-  UNNEST (hits) hits,
-  UNNEST (hits.product) product
+    UNNEST (hits) hits,
+    UNNEST (hits.product) product
   where _table_suffix between '0601' and '0731'           --lấy dữ liệu tháng 6,7
     and totals.transactions >=1             --điều kiện 1 purchaser: totals.transactions >=1
     and product.productRevenue is not null  --điều kiện 2 purchaser: productRevenue is not null
@@ -133,8 +171,8 @@ pageviews_non_purchasers as(  --tính avg_pageviews_non_purchasers
     ,sum(totals.pageviews) sum_pageviews_non_purchasers 
     ,round(sum(totals.pageviews)/count(distinct fullVisitorId),7) avg_pageviews_non_purchasers
   FROM `bigquery-public-data.google_analytics_sample.ga_sessions_2017*`,
-  UNNEST (hits) hits,
-  UNNEST (hits.product) product
+    UNNEST (hits) hits,
+    UNNEST (hits.product) product
   where _table_suffix between '0601' and '0731'           --lấy dữ liệu tháng 6,7
     and totals.transactions is null      --điều kiện 1 non-purchaser: totals.transactions is null
     and product.productRevenue is null   --điều kiện 2 non-purchaser: productRevenue is  null
@@ -146,150 +184,168 @@ select
   ,avg_pageviews_purchasers
   ,avg_pageviews_non_purchasers
 from pageviews_purchasers p
-inner join pageviews_non_purchasers n
+full join pageviews_non_purchasers n
   on p.month=n.month
 order by 1;
 ```
 
+| month | avg_pageviews_purchasers | avg_pageviews_non_purchasers | 
+|------|------|------| 
+| 201706 | 94.0205011 | 316.8655885 | 
+| 201707 | 124.2375519 | 334.0565598 |
+
 **5. Average number of transactions per user that made a purchase in July 2017.**
 
-```
+```sql
 /*
 month: 7
-Avg_total_transactions_per_user = total transactions/ total user
+avg_total_transactions_per_user = total transactions/ total user
 purchaser: "totals.transactions >=1" and "product.productRevenue is not null"
 */
-with call_mon7 as(
 SELECT 
-  sum(totals.transactions) total_trans
-  ,count(distinct fullVisitorId) total_user   -- fullVisitorId field is user id
-FROM `bigquery-public-data.google_analytics_sample.ga_sessions_201707*`, --month:07
-UNNEST (hits) hits,
-UNNEST (hits.product) product
-where totals.transactions >=1             --điều kiện 1 purchaser: totals.transactions >=1
-  and product.productRevenue is not null  --điều kiện 2 purchaser: productRevenue is not null
-)
-
-select
-  '201707' Month
-  ,(total_trans/total_user) Avg_total_transactions_per_user 
-from call_mon7;
+  format_date("%Y%m",parse_date("%Y%m%d",date)) as month,
+  round(sum(totals.transactions)/count(distinct fullvisitorid),2) as avg_total_transactions_per_user
+FROM  `bigquery-public-data.google_analytics_sample.ga_sessions_201707*`,
+  UNNEST (hits) hits,
+  UNNEST (hits.product) product
+where  totals.transactions>=1              --điều kiện 1 purchaser: totals.transactions >=1
+  and product.productRevenue is not null   --điều kiện 2 purchaser: productRevenue is not null
+group by month;
 ```
+
+| month | avg_total_transactions_per_user | 
+|------|------| 
+| 201707 | 4.16 |
 
 **6. Average amount of money spent per session. Only include purchaser data in July 2017.**
 
-```
+```sql
 /*
 month: 7
 avg_spend_per_session = total revenue/ total visit
 purchaser: "totals.transactions IS NOT NULL" and "product.productRevenue is not null"
 To shorten the result, productRevenue should be divided by 1000000
 */
-with call_mon7 as(
 SELECT 
-  count(totals.visits) total_visit
-  ,sum(product.productRevenue)/1000000 total_revenue   
+  format_date("%Y%m",parse_date("%Y%m%d",date)) as month,
+  round(sum(product.productRevenue)/power(10,6)/count(totals.visits),2) avg_spend_per_session 
 FROM `bigquery-public-data.google_analytics_sample.ga_sessions_201707*`, --month:07
-UNNEST (hits) hits,
-UNNEST (hits.product) product
+  UNNEST (hits) hits,
+  UNNEST (hits.product) product
 where totals.transactions is not null     --điều kiện 1 purchaser: totals.transactions is not null  
   and product.productRevenue is not null  --điều kiện 2 purchaser: productRevenue is not null
-)
-
-select
-  '201707' Month
-  ,round(total_revenue /total_visit,2) avg_spend_per_session 
-from call_mon7;
+group by 1;
 ```
+
+| month | avg_spend_per_session | 
+|------|------| 
+| 201707 | 43.86 |
 
 **7. Other products purchased by customers who purchased product "YouTube Men's Vintage Henley" in July 2017. Output should show product name and the quantity was ordered.**
 
-```
+```sql
 /*
-step1: tìm list user 
+step1: tìm list buyer 
 thỏa điều kiện: purchaser + đã mua product "YouTube Men's Vintage Henley"
 
-step2: productname, sum(quantity) group by productname
-where thoả: điều kiện purchaser, nằm trong list user, other product
+step2: join list buyer 
+select productname, sum(quantity) group by productname
+where thoả: điều kiện purchaser, other product
 order by quantity desc
 
 purchaser: "totals.transactions >=1" and "product.productRevenue is not null"
 */
-with call_users as(   -- tìm list user
+with buyer_list as(   -- tìm list buyer 
 SELECT 
   distinct fullVisitorId
   ,product.v2ProductName 
 FROM `bigquery-public-data.google_analytics_sample.ga_sessions_201707*`, --lấy dữ liệu 7
-UNNEST (hits) hits,
-UNNEST (hits.product) product
+  UNNEST (hits) hits,
+  UNNEST (hits.product) product
 where totals.transactions >=1             --điều kiện 1 purchaser: totals.transactions >=1  
   and product.productRevenue is not null  --điều kiện 2 purchaser: productRevenue is not null
   and product.v2ProductName = "YouTube Men's Vintage Henley" --chuỗi có 'nên dùng" thay thế
 )
 
 SELECT 
-   product.v2ProductName other_purchased_products
+  product.v2ProductName other_purchased_products
   ,sum(product.productQuantity) quantity
 FROM `bigquery-public-data.google_analytics_sample.ga_sessions_201707*`, --lấy dữ liệu 7
-UNNEST (hits) hits,
-UNNEST (hits.product) product
+  UNNEST (hits) hits,
+  UNNEST (hits.product) product
+join buyer_list using(fullVisitorId)
 where 1=1 -- để dễ kiểm tra các điều kiện bằng cách cmt/
   and totals.transactions >=1             --điều kiện 1 purchaser: totals.transactions >=1  
   and product.productRevenue is not null  --điều kiện 2 purchaser: productRevenue is not null
   and product.v2ProductName != "YouTube Men's Vintage Henley" --other product
-  and fullVisitorId in (select fullVisitorId from call_users) -- nằm trong list user
 group by 1
-order by 2 desc,1;
+order by 2 desc;
 ```
+
+| other_purchased_products | quantity |
+|------|------| 
+| Google Sunglasses | 20 |
+| Google Women's Vintage Hero Tee Black | 7 | 
+| SPF-15 Slim & Slender Lip Balm | 6 | 
+| Google Women's Short Sleeve Hero Tee Red Heather | 4 |
 
 **8. Calculate cohort map from product view to addtocart to purchase in Jan, Feb and March 2017. The output should be calculated in product level.**
 
-```
+```sql
 /*
 Hint 1: hits.eCommerceAction.action_type = '2' is view product page; hits.eCommerceAction.action_type = '3' is add to cart; hits.eCommerceAction.action_type = '6' is purchase
 Hint 2: Add condition "product.productRevenue is not null"  for purchase to calculate correctly
 Hint 3: To access action_type, you only need unnest hits
 */
-with raw_data as(
-  SELECT 
-    format_date('%Y%m',parse_date('%Y%m%d', date)) month
-    ,count(case when ecommerceaction.action_type = '2' then product.v2ProductName end) num_product_view
-    ,count(case when ecommerceaction.action_type = '3' then product.v2ProductName end) num_addtocart
-    ,count(case when ecommerceaction.action_type = '6' and product.productRevenue is not null then product.v2ProductName  
-           end) num_purchase       --thêm điều kiện "product.productRevenue is not null" 
-  FROM `bigquery-public-data.google_analytics_sample.ga_sessions_2017*`,
+with product_data as(
+SELECT 
+  format_date('%Y%m',parse_date('%Y%m%d', date)) month
+  ,count(case when ecommerceaction.action_type = '2' then product.v2ProductName end) num_product_view
+  ,count(case when ecommerceaction.action_type = '3' then product.v2ProductName end) num_addtocart
+  ,count(case when ecommerceaction.action_type = '6' and product.productRevenue is not null then product.v2ProductName  
+          end) num_purchase       --thêm điều kiện "product.productRevenue is not null" 
+FROM `bigquery-public-data.google_analytics_sample.ga_sessions_2017*`,
   UNNEST (hits) hits,
   UNNEST (hits.product) product
-  where _table_suffix between '0101' and '0331'        -- lấy dữ liệu tháng 1, 2, 3
-  group by 1
-  order by 1
+where _table_suffix between '0101' and '0331'        -- lấy dữ liệu tháng 1, 2, 3
+group by 1
+order by 1
 )
 
 select 
-  month
-  ,num_product_view
-  ,num_addtocart
-  ,num_purchase
+  *
   ,round(num_addtocart*100.0/num_product_view,2) add_to_cart_rate --Add_to_cart_rate = number product add to cart/number product view.
   ,round(num_purchase*100.0/num_product_view,2) purchase_rate     --Purchase_rate = number product purchase/number product view.
-from raw_data
+from product_data
 order by 1;
 ```
+
+| month | num_product_view | num_addtocart | num_purchase | add_to_cart_rate | purchase_rate | 
+|------|------|------|------|------|------| 
+| 201701 | 25787 | 7342 | 2143 | 28.47 | 8.31 | 
+| 201702 | 21489 | 7360 | 2060 | 34.25 | 9.59 | 
+| 201703 | 23549 | 8782 | 2977 | 37.29 | 12.64 |
+
 ## Insights
-* Certain traffic sources generate high traffic but high bounce rates, indicating low engagement quality.
+* Website performance improved in Q1 2017.
+Visits increased from 64,694 (Jan) to 69,931 (Mar) (+8.1%), while transactions grew from 713 to 993 (+39%). The much faster growth in transactions suggests an improvement in conversion performance or marketing effectiveness.
 
-* Purchasers tend to have significantly higher pageviews, suggesting deeper browsing behavior before purchase.
+* Website traffic is heavily driven by Google (organic search), which generates the highest number of visits (38,400). However, its relatively high bounce rate (51.6%) compared to direct traffic (43.3%) suggests that while SEO is the main acquisition channel, users arriving directly to the website tend to be more engaged and likely more familiar with the brand.
 
-* The conversion funnel reveals drop-offs between product view and add-to-cart, indicating potential UX or pricing issues.
+* Direct traffic generates the majority of revenue. In June 2017, direct traffic generated ~97,333 revenue, significantly higher than Google (~18,757). This indicates that direct visitors likely represent returning customers or users with stronger purchase intent.
 
-* Some products are frequently purchased together, revealing cross-selling opportunities.
+* Purchasers navigate the website more efficiently. Purchasers viewed 94–124 pages on average, while non-purchasers viewed 316–334 pages. This suggests buyers find products more quickly, whereas non-buyers may struggle with product discovery or lack purchase intent.
+
+* Funnel conversion improved significantly across Q1 2017. Purchase rate increased from 8.31% (Jan) to 12.64% (Mar). This improvement indicates better funnel performance, potentially driven by improved product pages, marketing targeting, or checkout experience.
 
 ## Recommendations
-* Improve marketing channel efficiency: Focus investment on traffic sources with lower bounce rates and higher conversion performance.
 
-* Optimize product pages: Improve product descriptions, images, and pricing to increase add-to-cart rates.
+*  Optimize landing pages for Google traffic: Since Google drives the largest traffic but has a high bounce rate (51.6%), improving landing page relevance, navigation, and page speed could significantly increase engagement and conversions.
 
-* Implement cross-selling strategies: Recommend related products during checkout to increase average order value.
+*  Focus on high-intent traffic channels: Direct traffic generates the highest revenue, suggesting strong purchase intent. Marketing strategies should encourage returning visitors, such as email campaigns, retargeting ads, and loyalty programs.
 
-* Enhance website engagement: Improve navigation and product discovery to encourage more pageviews and deeper browsing.
+* Implement product recommendation strategies: Customers frequently purchase multiple items in a session (avg 4.16 transactions per purchasing user). Features like “Frequently Bought Together” can increase cross-selling and average order value.
 
+* Improve product discovery for browsing users: Non-purchasers view 3× more pages than purchasers, indicating potential friction in product search or navigation. Enhancing search functionality, product categorization, and personalized recommendations could improve conversion rates.
+
+* Continue optimizing the purchase funnel.With purchase rate improving from 8.3% → 12.6%, further gains may come from simplifying checkout steps, improving product page clarity, and testing promotional incentives.
