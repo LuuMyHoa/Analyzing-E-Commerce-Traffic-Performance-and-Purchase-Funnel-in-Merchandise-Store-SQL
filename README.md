@@ -27,7 +27,7 @@ Google BigQuery Public Dataset: ```bigquery-public-data.google_analytics_sample.
 
 Some fields are nested and repeated, therefore UNNEST() is used in SQL queries to extract product-level information. 
 
-The complete dataset schema can be found [hear](https://support.google.com/analytics/answer/3437719?hl=en).
+The complete dataset schema can be found [here](https://support.google.com/analytics/answer/3437719?hl=en).
 
 <details>
   <summary>The table summarizes the key fields used in this analysis. </summary>
@@ -257,7 +257,7 @@ ORDER BY month;
 
 👉🏻 Insights: The funnel shows a healthy Add-to-cart rate (~40%), but a significant drop-off occurs at the final checkout stage, with the Purchase rate remaining around 12%. 
 
-✅ Recommendations: Introducing urgency tactics (limited-time offers, low-stock signals) and simplifying the checkout experience could improve conversion at the bottom of the purchase funel.
+✅ Recommendations: Introducing urgency tactics (limited-time offers, low-stock signals) and simplifying the checkout experience could improve conversion at the bottom of the purchase funnel.
 
 **7. Ranking 5 products by revenue (June 2017)**
 
@@ -353,6 +353,6 @@ This analysis reveals that in Quarter 2 2017, BigBang Merchandise Store is facin
 
 |Target measures| Priority actions | Expected results |
 | ------ | ------------------------ | ---------------------------- |
-|Purchase rate|Simplify and optimize the checkout process (fewer steps, guest checkout, UX clarity)|Increase purchase Rate từ 12% lên 15%|
-|Conversion Rate|Improve landing page relevance for high-bounce channels (Youtube, Facebook)|Reduce bounce rate form 60% to 50%|
+|Purchase rate|Simplify and optimize the checkout process (fewer steps, guest checkout, UX clarity)|Increase purchase Rate from 12% to 15%|
+|Conversion Rate|Improve landing page relevance for high-bounce channels (Youtube, Facebook)|Reduce bounce rate from 60% to 50%|
 |Average revenue per purchase session|Introduce bundling & “frequently bought together”| Increase avg revenue per purchase session from $135 to >$200|
